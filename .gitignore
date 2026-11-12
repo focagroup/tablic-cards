@@ -1,0 +1,8 @@
+# Signing keys stay local (Android only installs updates signed with the same key)
+keystore/
+*.jks
+# Build intermediates (the signed APK in build/<game>.apk is kept)
+build/apk/
+build/desktop/
+*.idsig
+.claude/
