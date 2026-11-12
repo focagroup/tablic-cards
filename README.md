@@ -41,6 +41,11 @@ to see what you took.
 
 ## Build (offline, no Gradle)
 
+The shared engine is the git submodule `framework/`
+([cards-framework](https://github.com/focagroup/cards-framework)). Clone with
+`git clone --recursive https://github.com/focagroup/tablic-cards`, or run `git submodule update --init`
+in an existing clone.
+
 Requires JDK 17+ and the Android SDK (`platforms/android-35`, `build-tools/35.0.0`) in `~/Android/Sdk`.
 
 ```bash
@@ -50,9 +55,9 @@ Requires JDK 17+ and the Android SDK (`platforms/android-35`, `build-tools/35.0.
 ./build.sh relaytest # Bluetooth relay checks, with TCP standing in for Bluetooth
 ```
 
-The APK is signed with `~/claude/.keys/cards/tablic.jks`, with its password in `tablic.pass` next to it.
-Keys and passwords are never in git. Keep them backed up: Android only installs updates signed
-with the same key.
+The APK is signed with `~/claude/.keys/cards/tablic.jks`, with its password in `tablic.pass` next to it
+(see Signing in the framework README). Keys and passwords are never in git. Keep them backed up:
+Android only installs updates signed with the same key.
 
 ## Generated assets
 
@@ -66,10 +71,13 @@ Edit Serbian texts in `sr_lat` in `app/assets/web/i18n.js`, then run `tools/sr_c
 
 ## Layout
 
-- `app/core/` – pure Java: rules engine (`Game`), bots, room/lobby, tiny HTTP server
-- `app/src/` – Android `MainActivity` (WebView locked to the local server) and `Bluetooth`
-  (RFCOMM host listener / guest connector)
-- `app/core/.../Relay.java` – carries the API calls between guest and host over one stream
+- `framework/` – git submodule [cards-framework](https://github.com/focagroup/cards-framework):
+  lobby/room base, HTTP server, Bluetooth relay, the Android activity and the shared `build.sh`
+- `app/core/` – pure Java: rules engine (`Game`), bots, and `Room` (the framework room with
+  Tablić's settings, moves and state view)
+- `app/src/` – Android `MainActivity`: Tablić's identity, colours and Bluetooth UUID on top of the
+  framework's `CardsActivity`
+- `game.conf` – build settings read by `framework/build.sh`
 - `app/assets/web/` – the game UI (HTML/CSS/JS), shared by the app and remote browsers
 - `skins/french/` – card images (copied into the APK by `build.sh`)
 - `desktop/` – desktop runner and simulation tests

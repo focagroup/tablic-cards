@@ -4,259 +4,80 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+
+import app.cards.core.GameInfo;
 
 /**
- * A single game room: lobby configuration, seats, the running game and the bot driver.
- * All public methods are synchronized; state changes bump `version` and wake long-polls.
+ * The Tablić room: lobby settings, the running {@link Game} and its view for the web client.
+ * Seats, joining, long polling and the bot loop come from the framework's Room.
  */
-public final class Room {
-    public static final int LOCAL = 0, REMOTE = 1, BOT = 2;
-    private static final String[] TYPE_NAMES = {"local", "remote", "bot"};
+public final class Room extends app.cards.core.Room {
+    public static final GameInfo INFO = new GameInfo("tablic", "Tablic", "Tablić");
+    private static final int SEATS = 4;
     private static final long BOT_DELAY_MS = 1200;
-    private static final long ONLINE_MS = 45000;
 
-    public static final class Seat {
-        int type;
-        String name = "";
-        String token;      // remote seats: owning client token
-        int botLevel = 1;
-        long lastSeen;
-    }
-
-    private final Random rng = new Random();
     private final Game.Config cfg = new Game.Config();
-    private final Seat[] seats = new Seat[4];
     private Game game;
-    private long version = 1;
-    private long lastChange = System.currentTimeMillis();
-    private int gameId = 0;
 
     public Room() {
-        for (int i = 0; i < 4; i++) {
-            seats[i] = new Seat();
-            seats[i].type = i == 0 ? LOCAL : BOT;
-        }
-        Thread t = new Thread(new Runnable() {
-            @Override public void run() { botLoop(); }
-        }, "tablic-bots");
-        t.setDaemon(true);
-        t.start();
+        super(INFO, SEATS, BOT_DELAY_MS);
     }
 
-    private void changed() {
-        version++;
-        lastChange = System.currentTimeMillis();
-        notifyAll();
-    }
+    // ------------------------------------------------------------------ lifecycle
 
-    // ------------------------------------------------------------------ long poll
+    @Override protected boolean hasGame() { return game != null; }
 
-    public synchronized void awaitChange(long since, long timeoutMs) {
-        long end = System.currentTimeMillis() + timeoutMs;
-        while (version <= since) {
-            long left = end - System.currentTimeMillis();
-            if (left <= 0) return;
-            try { wait(left); } catch (InterruptedException e) { return; }
-        }
-    }
+    @Override protected int players() { return cfg.players; }
 
-    // ------------------------------------------------------------------ bots
-
-    private void botLoop() {
-        while (true) {
-            synchronized (this) {
-                try {
-                    if (game != null && game.phase == Game.Phase.PLAYING && seats[game.turn].type == BOT) {
-                        long due = lastChange + BOT_DELAY_MS;
-                        long now = System.currentTimeMillis();
-                        if (now >= due) {
-                            int s = game.turn;
-                            Bot.Choice c = Bot.choose(game, s, seats[s].botLevel, rng);
-                            game.play(s, c.card, c.capture);
-                            changed();
-                        } else {
-                            wait(due - now);
-                        }
-                    } else {
-                        wait(5000);
-                    }
-                } catch (InterruptedException e) {
-                    return;
-                } catch (RuntimeException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------ access control
-
-    private boolean controls(int seat, String token, boolean isHost) {
-        if (seat < 0 || seat >= cfg.players) return false;
-        Seat s = seats[seat];
-        if (s.type == LOCAL) return isHost;
-        if (s.type == REMOTE) return token != null && token.equals(s.token);
-        return false;
-    }
-
-    private void touch(String token) {
-        if (token == null) return;
-        long now = System.currentTimeMillis();
-        for (Seat s : seats) {
-            if (s.type == REMOTE && token.equals(s.token)) {
-                boolean wasOffline = now - s.lastSeen > ONLINE_MS;
-                s.lastSeen = now;
-                if (wasOffline) changed();
-            }
-        }
-    }
-
-    // ------------------------------------------------------------------ lobby actions
-
-    public synchronized String configure(boolean isHost, Map<String, String> p) {
-        if (!isHost) return "host_only";
-        if (game != null) return "game_running";
+    @Override protected void configureGame(Map<String, String> p) {
         if (p.containsKey("players")) cfg.players = clamp(parseInt(p.get("players"), 2), 2, 4);
         if (p.containsKey("teams")) cfg.teams = "1".equals(p.get("teams")) || "true".equals(p.get("teams"));
         if (p.containsKey("length")) cfg.longGame = "long".equals(p.get("length"));
-        for (int i = 0; i < 4; i++) {
-            Seat s = seats[i];
-            String type = p.get("seat" + i + "_type");
-            if (type != null) {
-                int nt = indexOf(TYPE_NAMES, type);
-                if (nt >= 0 && nt != s.type) {
-                    s.type = nt;
-                    s.token = null;
-                    s.name = "";
-                }
-            }
-            String name = p.get("seat" + i + "_name");
-            if (name != null && s.type != REMOTE) s.name = cleanName(name);
-            String lvl = p.get("seat" + i + "_bot");
-            if (lvl != null) s.botLevel = clamp(parseInt(lvl, 1), 0, 2);
-        }
-        changed();
-        return null;
     }
 
-    public synchronized String join(String token, int seat, String name) {
-        if (token == null || token.length() < 8) return "bad_token";
-        if (game != null) return "game_running";
-        if (seat < 0 || seat >= cfg.players) return "bad_seat";
-        Seat s = seats[seat];
-        if (s.type != REMOTE) return "bad_seat";
-        if (s.token != null && !s.token.equals(token)) return "seat_taken";
-        for (Seat o : seats) if (o != s && token.equals(o.token)) { o.token = null; o.name = ""; }
-        s.token = token;
-        s.name = cleanName(name);
-        s.lastSeen = System.currentTimeMillis();
-        changed();
-        return null;
+    @Override protected void newGame() { game = new Game(cfg, rng); }
+
+    @Override protected void nextGameRound() { game.nextRound(); }
+
+    @Override protected void clearGame() { game = null; }
+
+    // ------------------------------------------------------------------ moves and bots
+
+    @Override public boolean handles(String action) { return "play".equals(action); }
+
+    /** "play": card=&lt;id&gt; and capture=&lt;id,id,...&gt; (the table cards taken). */
+    @Override protected String play(int seat, String action, Map<String, String> p) {
+        return game.play(seat, parseInt(p.get("card"), -1), parseInts(p.get("capture")));
     }
 
-    public synchronized String leave(String token) {
-        if (token == null) return null;
-        for (Seat s : seats) {
-            if (token.equals(s.token) && game == null) { s.token = null; s.name = ""; }
-        }
-        changed();
-        return null;
+    @Override protected int botTurn() {
+        return game.phase == Game.Phase.PLAYING ? game.turn : -1;
     }
 
-    public synchronized String start(boolean isHost) {
-        if (!isHost) return "host_only";
-        if (game != null) return "game_running";
-        for (int i = 0; i < cfg.players; i++)
-            if (seats[i].type == REMOTE && seats[i].token == null) return "seats_open";
-        game = new Game(cfg, rng);
-        gameId++;
-        changed();
-        return null;
-    }
-
-    public synchronized String nextRound(boolean isHost) {
-        if (!isHost) return "host_only";
-        if (game == null) return "no_game";
-        game.nextRound();
-        changed();
-        return null;
-    }
-
-    public synchronized String endGame(boolean isHost) {
-        if (!isHost) return "host_only";
-        game = null;
-        changed();
-        return null;
-    }
-
-    /** Mid-game: hand a seat (e.g. a disconnected remote player) to a bot, or back to the host. */
-    public synchronized String setSeatType(boolean isHost, int seat, String type) {
-        if (!isHost) return "host_only";
-        if (seat < 0 || seat >= cfg.players) return "bad_seat";
-        int nt = indexOf(TYPE_NAMES, type);
-        if (nt < 0 || nt == REMOTE) return "bad_type";
-        seats[seat].type = nt;
-        seats[seat].token = null;
-        changed();
-        return null;
-    }
-
-    public synchronized String play(String token, boolean isHost, int seat, int card, int[] capture) {
-        if (game == null) return "no_game";
-        if (!controls(seat, token, isHost)) return "not_your_seat";
-        String err = game.play(seat, card, capture);
-        if (err == null) changed();
-        return err;
+    @Override protected void botPlay(int s, int level) {
+        Bot.Choice c = Bot.choose(game, s, level, rng);
+        game.play(s, c.card, c.capture);
     }
 
     // ------------------------------------------------------------------ state view
 
-    public synchronized String state(String token, boolean isHost, List<String> addresses, int port) {
-        touch(token);
-        long now = System.currentTimeMillis();
-        Map<String, Object> o = new LinkedHashMap<>();
-        o.put("v", version);
-        o.put("isHost", isHost);
-        o.put("gameId", gameId);
-
-        List<Object> mine = new ArrayList<>();
-        for (int i = 0; i < cfg.players; i++) if (controls(i, token, isHost)) mine.add(i);
-        o.put("mySeats", mine);
-
+    @Override protected Object configView() {
         Map<String, Object> c = new LinkedHashMap<>();
         Game.Config gc = game != null ? game.cfg : cfg;
         c.put("players", gc.players);
         c.put("teams", gc.players == 4 && gc.teams);
         c.put("length", gc.longGame ? "long" : "short");
         c.put("target", Game.LONG_TARGET);
-        o.put("config", c);
+        return c;
+    }
 
-        List<Object> seatList = new ArrayList<>();
-        for (int i = 0; i < 4; i++) {
-            Seat s = seats[i];
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("type", TYPE_NAMES[s.type]);
-            m.put("name", s.name);
-            m.put("bot", s.botLevel);
-            m.put("taken", s.type != REMOTE || s.token != null);
-            m.put("online", s.type != REMOTE || (s.token != null && now - s.lastSeen < ONLINE_MS));
-            m.put("you", token != null && token.equals(s.token));
-            seatList.add(m);
-        }
-        o.put("seats", seatList);
-
-        if (isHost) {
-            o.put("addresses", addresses);
-            o.put("port", port);
-        }
-
-        if (game == null) {
-            o.put("phase", "lobby");
-            return Json.write(o);
-        }
+    @Override protected String phase() {
         Game g = game;
-        o.put("phase", g.phase == Game.Phase.PLAYING ? "playing" : g.phase == Game.Phase.ROUND_END ? "roundEnd" : "gameOver");
+        return g.phase == Game.Phase.PLAYING ? "playing" : g.phase == Game.Phase.ROUND_END ? "roundEnd" : "gameOver";
+    }
+
+    @Override protected Map<String, Object> gameView(List<Integer> mine) {
+        Game g = game;
         Map<String, Object> gm = new LinkedHashMap<>();
         gm.put("round", g.round);
         gm.put("dealer", g.dealer);
@@ -331,30 +152,6 @@ public final class Room {
         List<Object> hist = new ArrayList<>();
         for (int[] h : g.history) hist.add(h);
         gm.put("history", hist);
-        o.put("game", gm);
-        return Json.write(o);
+        return gm;
     }
-
-    // ------------------------------------------------------------------ helpers
-
-    private static String cleanName(String s) {
-        if (s == null) return "";
-        StringBuilder b = new StringBuilder();
-        for (int i = 0; i < s.length() && b.length() < 16; i++) {
-            char ch = s.charAt(i);
-            if (ch >= 0x20 && ch != '<' && ch != '>') b.append(ch);
-        }
-        return b.toString().trim();
-    }
-
-    private static int indexOf(String[] a, String s) {
-        for (int i = 0; i < a.length; i++) if (a[i].equals(s)) return i;
-        return -1;
-    }
-
-    static int parseInt(String s, int def) {
-        try { return Integer.parseInt(s.trim()); } catch (Exception e) { return def; }
-    }
-
-    private static int clamp(int v, int lo, int hi) { return Math.max(lo, Math.min(hi, v)); }
 }
