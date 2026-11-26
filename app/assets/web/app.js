@@ -588,8 +588,9 @@ function buildGame(s) {
       <div class="deck ${g.deck ? '' : 'empty'}">${backEl()}<div>${g.deck}</div></div>
       <div id="table">${tcards}</div>
     </div>
-    <div class="status">${status}</div>
+    <div class="status"><div>${status}</div></div>
     ${meBox}`);
+  fitStatus();
   fitTable();
 
   $('#menuBtn').onclick = () => openPopup('menu');
@@ -633,6 +634,14 @@ function fitTable() {
   tb.style.width = (best.k * w + (best.k - 1) * gap + 1) + 'px';
 }
 window.addEventListener('resize', () => { if ($('#app').dataset.view === 'game') fitTable(); });
+
+/** Shrink the hint text a little if it would wrap, so the line keeps its height and the table stays put. */
+function fitStatus() {
+  const box = $('#app > .status'), line = box && box.firstElementChild;
+  if (!line) return;
+  const max = parseFloat(getComputedStyle(box).minHeight);
+  for (let fs = 13; line.offsetHeight > max && fs >= 10; fs--) line.style.fontSize = fs + 'px';
+}
 
 function onCardTap(c) {
   if (st.busy || st.animating) return;

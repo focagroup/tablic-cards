@@ -157,6 +157,9 @@ input[type=text] { min-width: 0; flex: 1 1 110px; }
 
 .status { text-align: center; min-height: 22px; font-size: 14px; padding: 0 10px; }
 .status .mini { --w: 20px; }
+/* fixed height that already fits the small card pictures, so the table and the deck above it
+   do not shift when the hint changes (e.g. when a hand card is selected) */
+#app > .status { display: flex; align-items: center; justify-content: center; min-height: calc(20px * var(--cr) + 2px); }
 .status .gold { color: var(--gold); }
 .status .warn { color: #ffb4a8; }
 
