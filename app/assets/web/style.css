@@ -146,6 +146,11 @@ input[type=text] { min-width: 0; flex: 1 1 110px; }
 #table .card.cand { box-shadow: 0 0 0 2px rgba(227,178,60,.55); }
 #hand.active .card, .active-table #table .card { cursor: pointer; }
 #table .card.dim { opacity: .5; }
+/* where the selected hand card would be put down: lit when the next tap does that, faint otherwise */
+#table .card.slot { box-shadow: none; border: 2px dashed rgba(255,255,255,.3); background: rgba(255,255,255,.04); box-sizing: border-box; }
+#table .card.slot.on { border-color: var(--gold); background: rgba(227,178,60,.08); animation: slotPulse 1.4s ease-in-out infinite; }
+#table .card.slot img { opacity: .35; }
+@keyframes slotPulse { 50% { border-color: rgba(227,178,60,.4); } }
 .deck { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); text-align: center; font-size: 11px; color: var(--muted); }
 .deck .card { --w: calc(var(--table-w) * .8); box-shadow: 1px 1px 0 #5c0d16, 2px 2px 0 #3d0810, 3px 3px 4px rgba(0,0,0,.5); }
 .deck.empty .card { opacity: 0; }

@@ -168,9 +168,41 @@ function rerender() {
   if (!s) return;
   if (s.phase === 'lobby') { renderLobby(true); return; }
   computeView(s);
+  const before = $('#app').dataset.view === 'game' ? tableLayout() : null;
   buildGame(s);
+  if (before) glideTable(before);
   if (s.phase !== 'playing') showResult(s); else closeResult();
   if (st.popup) openPopup(st.popup);
+}
+
+/** Where every table card (and the put-down outline, key "slot") currently is. */
+function tableLayout() {
+  const o = {};
+  $$('#table .card').forEach(el => { o[el.dataset.id || 'slot'] = el.getBoundingClientRect(); });
+  return o;
+}
+
+/**
+ * After a local re-render (selecting a card, marking captures), let the table cards glide from
+ * where they were to where they are now — e.g. when they move together to make room for the
+ * put-down outline — and fade the outline in. Uses the `translate`/`scale` properties so the
+ * cards' own transforms (the lifted marked cards) still apply.
+ */
+function glideTable(before) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  $$('#table .card').forEach(el => {
+    const old = before[el.dataset.id || 'slot'];
+    if (!old) {
+      if (!el.dataset.id) el.animate([{opacity: 0, scale: .85}, {opacity: 1, scale: 1}], {duration: 260, easing: 'ease-out'});
+      return;
+    }
+    const now = el.getBoundingClientRect();
+    const dx = old.left - now.left, dy = old.top - now.top, sc = old.width / now.width;
+    if (Math.abs(dx) + Math.abs(dy) < 1 && Math.abs(sc - 1) < 0.01) return;
+    el.style.transformOrigin = '0 0';
+    el.animate([{translate: `${dx}px ${dy}px`, scale: `${sc}`}, {translate: '0 0', scale: '1'}],
+      {duration: 280, easing: 'cubic-bezier(.3,.7,.3,1)'});
+  });
 }
 
 function seatName(i) {
@@ -407,6 +439,11 @@ async function copyText(text) {
   }
   toast(ok ? t('copied') : text);
 }
+/** Dashed outline at the spot where the selected hand card would land if put down on the table.
+ *  Lit when that is what the next tap does; faint (but still tappable) while a capture is marked. */
+function slotEl(id, on) {
+  return `<div class="card slot${on ? ' on' : ''}" title="${esc(t('toTable'))}" aria-label="${esc(cardName(id) + ' ' + t('toTable'))}">${on ? cardImg(id) : ''}</div>`;
+}
 function backEl() { return `<div class="card back">${cardImg(-1)}</div>`; }
 function mini(id) { return `<span class="card mini">${cardImg(id)}</span>`; }
 
@@ -505,7 +542,7 @@ function buildGame(s) {
     if (st.marked.has(c)) cls = 'target';
     else if (cand) cls = cand.has(c) ? 'cand' : 'dim';
     return cardEl(c, cls);
-  }).join('');
+  }).join('') + (myTurn && st.sel ? slotEl(st.sel.card, !marked.length) : '');
 
   let status = '';
   if (s.phase === 'playing') {
@@ -559,7 +596,9 @@ function buildGame(s) {
   bindPileHold();
   if (myTurn) {
     $$('#hand .card').forEach(el => el.onclick = () => onCardTap(+el.dataset.id));
-    $$('#table .card').forEach(el => el.onclick = () => onTableTap(+el.dataset.id));
+    $$('#table .card[data-id]').forEach(el => el.onclick = () => onTableTap(+el.dataset.id));
+    const slot = $('#table .slot');
+    if (slot) slot.onclick = () => { if (!st.busy && !st.animating && st.sel) playCard(st.sel.card, []); };
   }
   const rv = $('#reveal');
   if (rv) rv.onclick = () => {
@@ -612,6 +651,12 @@ function onCardTap(c) {
 
 function onTableTap(c) {
   if (st.busy || st.animating) return;
+  // Tapping a card that is already marked means "take it": play the marked capture right away
+  // instead of unmarking it (which used to silently turn the move into putting the card down).
+  if (st.sel && st.marked.has(c)) {
+    const marked = markedList();
+    if (validCapture(st.sel.card, marked)) { playCard(st.sel.card, marked); return; }
+  }
   if (st.sel && !candidates(st.sel.card).has(c) && !st.marked.has(c)) {
     toast(t('cannotTake', {card: cardName(st.sel.card)}));
     return;
@@ -793,7 +838,7 @@ async function animateMove(mv, before, s) {
 /** Cards that the current deal brings in, in dealing order. */
 function dealEls(newRound) {
   const groups = [];
-  if (newRound) groups.push($$('#table .card'));
+  if (newRound) groups.push($$('#table .card[data-id]'));
   const hands = [$$('#hand .card')].concat($$('.opp .backs').map(b => $$('.card', b)));
   for (let k = 0; k < 6; k++) for (const h of hands) if (h[k]) groups.push([h[k]]);
   return [].concat(...groups);
