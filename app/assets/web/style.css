@@ -173,7 +173,11 @@ input[type=text] { min-width: 0; flex: 1 1 110px; }
 #hand.active .card { cursor: pointer; }
 #hand .card.sel { transform: translateY(-12px); box-shadow: 0 0 0 3px var(--gold), 0 6px 16px rgba(0,0,0,.6); }
 #hand .card.cap { }
-#hand .card.cap::after { content: ""; position: absolute; right: -4px; top: -4px; width: 12px; height: 12px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+/* "this card can take something": a gold equilateral triangle pointing down (12px wide, 12·√3/2 tall),
+   centred on the top edge so that half of it is over the card and half outside */
+#hand .card.cap::after { content: ""; position: absolute; left: 50%; top: 0; width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10.39px solid var(--gold);
+  transform: translate(-50%, -50%); filter: drop-shadow(0 0 3px var(--gold)); }
 .cover { position: absolute; inset: 0; background: rgba(8, 28, 50, .96); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 10px; font-size: 16px; z-index: 5; }
 .cover .card { --w: 34px; }
 
