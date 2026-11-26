@@ -169,10 +169,27 @@ function rerender() {
   if (s.phase === 'lobby') { renderLobby(true); return; }
   computeView(s);
   const before = $('#app').dataset.view === 'game' ? tableLayout() : null;
+  const wasSel = $('#hand .card.sel');
   buildGame(s);
   if (before) glideTable(before);
+  liftHand(wasSel && wasSel.dataset.id);
   if (s.phase !== 'playing') showResult(s); else closeResult();
   if (st.popup) openPopup(st.popup);
+}
+
+/**
+ * The hand is rebuilt on every tap, so the CSS transition of the lifted (selected) card never runs.
+ * Animate it here instead: the newly selected card rises, the previously selected one sinks back.
+ */
+function liftHand(wasId) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const now = $('#hand .card.sel'), nowId = now ? now.dataset.id : undefined;
+  if (nowId === wasId) return;
+  const up = now ? getComputedStyle(now).transform : 'translateY(-12px)';
+  const opts = {duration: 180, easing: 'cubic-bezier(.3,.7,.3,1)'};
+  if (now) now.animate([{transform: 'none'}, {transform: up}], opts);
+  const old = wasId && $(`#hand .card[data-id="${wasId}"]`);
+  if (old) old.animate([{transform: up}, {transform: 'none'}], opts);
 }
 
 /** Where every table card (and the put-down outline, key "slot") currently is. */
@@ -702,6 +719,7 @@ async function renderGame(prev, s) {
   try {
     if (newMove) {
       slideTable(before, mv);
+      slideHand(before);
       await animateMove(mv, before, s);
     }
     if (dealing) await animateDeal(newRound);
@@ -778,6 +796,19 @@ function flyTo(el, to, dur, delay, fade) {
     a.onfinish = fin;
     a.oncancel = fin;
     setTimeout(fin, dur + (delay || 0) + 150);
+  });
+}
+
+/** Let the cards left in the own hand slide together to close the gap of the card just played. */
+function slideHand(before) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  $$('#hand .card[data-id]').forEach(el => {
+    const old = before.hand[el.dataset.id];
+    if (!old) return;
+    const now = el.getBoundingClientRect();
+    const dx = old.left - now.left, dy = old.top - now.top;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    el.animate([{translate: `${dx}px ${dy}px`}, {translate: '0 0'}], {duration: 320, easing: 'cubic-bezier(.3,.7,.3,1)'});
   });
 }
 
