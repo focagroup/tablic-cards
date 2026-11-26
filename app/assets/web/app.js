@@ -715,6 +715,9 @@ async function renderGame(prev, s) {
   const dealing = newDeal && s.phase === 'playing';
   // New hands are already in the DOM; keep them invisible until the deal animation flies them in.
   if (dealing && newMove) dealEls(newRound).forEach(el => { el.style.opacity = '0'; });
+  // The deck still holds the cards about to be dealt: keep showing them until they have flown out,
+  // so that the deck does not vanish before the last deal.
+  if (dealing) setDeck(g.deck + dealEls(newRound).length);
   st.animating = true;
   try {
     if (newMove) {
@@ -722,7 +725,7 @@ async function renderGame(prev, s) {
       slideHand(before);
       await animateMove(mv, before, s);
     }
-    if (dealing) await animateDeal(newRound);
+    if (dealing) await animateDeal(newRound, g.deck);
   } finally {
     st.animating = false;
   }
@@ -884,16 +887,28 @@ function dealEls(newRound) {
   return [].concat(...groups);
 }
 
-async function animateDeal(newRound) {
+/** Show `n` cards left in the deck; with none left it is hidden (faded out if `fade`). */
+function setDeck(n, fade) {
+  const d = $('.deck');
+  if (!d) return;
+  if (!n && fade && !d.classList.contains('empty')) d.firstElementChild.animate([{opacity: 1}, {opacity: 0}], {duration: 300});
+  d.classList.toggle('empty', !n);
+  d.lastElementChild.textContent = n;
+}
+
+/** Fly the dealt cards out of the deck. Its counter goes down card by card to `left`; an empty
+ *  deck fades away only once the last card has landed. */
+async function animateDeal(newRound, left) {
   const els = dealEls(newRound);
   const deck = rectOf('.deck .card');
-  if (!deck) { els.forEach(el => { el.style.opacity = ''; }); return; }
+  if (!deck) { els.forEach(el => { el.style.opacity = ''; }); setDeck(left); return; }
   const step = els.length > 16 ? 32 : 50;
   const anims = els.map((el, i) => {
     const r = el.getBoundingClientRect();
     const dx = deck.left - r.left, dy = deck.top - r.top, sc = deck.width / r.width;
     el.style.transformOrigin = '0 0';
     el.style.opacity = '';
+    setTimeout(() => { const n = $('.deck > div:last-child'); if (n) n.textContent = left + els.length - i - 1; }, i * step);
     const a = el.animate(
       [{transform: `translate(${dx}px,${dy}px) scale(${sc})`, opacity: .4}, {transform: 'none', opacity: 1}],
       {duration: 320, delay: i * step, easing: 'cubic-bezier(.25,.8,.35,1)', fill: 'backwards'});
@@ -903,6 +918,7 @@ async function animateDeal(newRound) {
     });
   });
   await Promise.race([Promise.all(anims), sleep(els.length * step + 800)]);
+  setDeck(left, true);
 }
 
 function banner(text) {
